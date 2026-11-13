@@ -25,7 +25,7 @@ if(WIN32)
   # Single source of truth for the version: shared by C++ and the resource compiler.
   configure_file(src/version.h.in "${CMAKE_CURRENT_BINARY_DIR}/generated/version.h" @ONLY)
   target_include_directories(wlanmute PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-  target_link_libraries(wlanmute PRIVATE wlanmute_policy wlanapi iphlpapi ws2_32 ole32 oleaut32 uuid shell32 user32)
+  target_link_libraries(wlanmute PRIVATE wlanmute_policy wlanapi iphlpapi ws2_32 ole32 oleaut32 uuid shell32 user32 comctl32)
   wlanmute_warnings(wlanmute)
   if(MSVC)
     # The manifest is embedded via wlanmute.rc; avoid a duplicate linker-generated one.

@@ -25,7 +25,8 @@ Download a single EXE from [Releases](https://github.com/nanosonde/wlanmute/rele
 Run it as your normal user. No installer, .NET installation, or routine
 administrator elevation is needed. Look in the system tray, including hidden
 icons. Right-click for **Automatic switching**, **Check now**, **Recent activity**,
-and **Exit (restore Wi-Fi)**. Turning automatic switching off restores any Wi-Fi
+and **Exit (restore Wi-Fi)**. Recent activity opens a live table of the latest
+30 events. Turning automatic switching off restores any Wi-Fi
 connection owned by the app. Exiting waits for restoration to be confirmed;
 if it fails, the app stays paused and reports the problem rather than silently
 leaving Wi-Fi disconnected.

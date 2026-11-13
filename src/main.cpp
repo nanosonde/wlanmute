@@ -2,6 +2,7 @@
 #include "version.h"
 #include "windows_network.h"
 
+#include <commctrl.h>
 #include <objbase.h>
 #include <shellapi.h>
 #include <strsafe.h>
@@ -23,6 +24,14 @@ constexpr UINT MenuActivity = 102;
 constexpr UINT MenuAbout = 103;
 constexpr UINT MenuExit = 104;
 constexpr wchar_t WindowClass[] = L"wlanmute.TrayWindow";
+constexpr wchar_t ActivityWindowClass[] = L"wlanmute.ActivityWindow";
+constexpr int ActivityListId = 200;
+constexpr int ActivityCloseId = 201;
+
+struct ActivityEvent {
+    std::wstring time;
+    std::wstring message;
+};
 
 struct HandleDeleter {
     void operator()(void* handle) const { if (handle) CloseHandle(handle); }
@@ -42,6 +51,9 @@ class TrayApp {
 public:
     explicit TrayApp(HINSTANCE instance)
         : policy_(network_, [this](const auto& text) { Report(text); }), instance_(instance) {
+        INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+        if (!InitCommonControlsEx(&controls))
+            throw std::runtime_error("Cannot initialize the recent-activity table.");
         LoadIcons();
         WNDCLASSW window_class{};
         window_class.lpfnWndProc = WindowProcedure;
@@ -72,6 +84,8 @@ public:
     }
 
     ~TrayApp() {
+        if (activity_window_)
+            DestroyWindow(activity_window_);
         if (window_) {
             KillTimer(window_, PollTimer);
             Shell_NotifyIconW(NIM_DELETE, &tray_);
@@ -137,10 +151,11 @@ private:
         StringCchPrintfW(stamp, std::size(stamp), L"%02u:%02u:%02u ",
             static_cast<unsigned>(time.wHour), static_cast<unsigned>(time.wMinute),
             static_cast<unsigned>(time.wSecond));
-        events_.push_back(stamp + text);
+        events_.push_back({stamp, text});
         while (events_.size() > 30)
             events_.pop_front();
-        OutputDebugStringW((events_.back() + L"\n").c_str());
+        OutputDebugStringW((stamp + text + L"\n").c_str());
+        RefreshActivityWindow();
     }
 
     void ShowError(const std::wstring& text) {
@@ -155,6 +170,160 @@ private:
                 OutputDebugStringW(L"wlanmute: could not show the error balloon.\n");
             last_error_ = text;
         }
+    }
+
+    void RefreshActivityWindow() {
+        if (!activity_list_)
+            return;
+
+        ListView_DeleteAllItems(activity_list_);
+        int row = 0;
+        if (events_.empty()) {
+            LVITEMW item{};
+            item.mask = LVIF_TEXT;
+            item.iItem = row;
+            item.pszText = const_cast<wchar_t*>(L"--");
+            ListView_InsertItem(activity_list_, &item);
+            ListView_SetItemText(activity_list_, row, 1, const_cast<wchar_t*>(L"No recent activity."));
+            return;
+        }
+
+        for (const auto& event : events_) {
+            LVITEMW item{};
+            item.mask = LVIF_TEXT;
+            item.iItem = row;
+            item.pszText = const_cast<wchar_t*>(event.time.c_str());
+            if (ListView_InsertItem(activity_list_, &item) >= 0)
+                ListView_SetItemText(activity_list_, row, 1, const_cast<wchar_t*>(event.message.c_str()));
+            ++row;
+        }
+        ListView_EnsureVisible(activity_list_, row - 1, FALSE);
+    }
+
+    void ShowActivityWindow() {
+        if (activity_window_) {
+            RefreshActivityWindow();
+            ShowWindow(activity_window_, SW_SHOWNORMAL);
+            SetForegroundWindow(activity_window_);
+            return;
+        }
+
+        WNDCLASSEXW activity_class{};
+        activity_class.cbSize = sizeof(activity_class);
+        activity_class.lpfnWndProc = ActivityWindowProcedure;
+        activity_class.hInstance = instance_;
+        activity_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        activity_class.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_APP_MUTED));
+        activity_class.hbrBackground = reinterpret_cast<HBRUSH>(static_cast<INT_PTR>(COLOR_WINDOW + 1));
+        activity_class.lpszClassName = ActivityWindowClass;
+        if (!RegisterClassExW(&activity_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+            throw std::runtime_error("Cannot create the recent-activity window.");
+
+        const auto dpi = GetDpiForWindow(window_);
+        RECT bounds{0, 0, MulDiv(640, static_cast<int>(dpi), 96), MulDiv(360, static_cast<int>(dpi), 96)};
+        constexpr DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME;
+        constexpr DWORD extended_style = WS_EX_TOOLWINDOW;
+        if (!AdjustWindowRectExForDpi(&bounds, style, FALSE, extended_style, dpi))
+            throw std::runtime_error("Cannot size the recent-activity window.");
+
+        activity_window_ = CreateWindowExW(extended_style, ActivityWindowClass,
+            L"wlanmute - Recent activity", style, CW_USEDEFAULT, CW_USEDEFAULT,
+            bounds.right - bounds.left, bounds.bottom - bounds.top, window_, nullptr, instance_, this);
+        if (!activity_window_)
+            throw std::runtime_error("Cannot open the recent-activity window.");
+        ShowWindow(activity_window_, SW_SHOWNORMAL);
+        SetForegroundWindow(activity_window_);
+    }
+
+    static LRESULT CALLBACK ActivityWindowProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+        auto app = reinterpret_cast<TrayApp*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+        if (message == WM_NCCREATE) {
+            const auto create = reinterpret_cast<CREATESTRUCTW*>(lparam);
+            app = static_cast<TrayApp*>(create->lpCreateParams);
+            SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(app));
+            app->activity_window_ = window;
+        }
+
+        if (app) {
+            if (message == WM_CREATE) {
+                const auto dpi = GetDpiForWindow(window);
+                const int margin = MulDiv(12, static_cast<int>(dpi), 96);
+                app->activity_list_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL,
+                    margin, margin, 1, 1, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(ActivityListId)),
+                    app->instance_, nullptr);
+                app->activity_close_ = CreateWindowExW(0, L"BUTTON", L"Close",
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+                    0, 0, 1, 1, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(ActivityCloseId)),
+                    app->instance_, nullptr);
+                if (!app->activity_list_ || !app->activity_close_)
+                    return -1;
+
+                ListView_SetExtendedListViewStyle(app->activity_list_,
+                    LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
+                LVCOLUMNW column{};
+                column.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+                column.pszText = const_cast<wchar_t*>(L"Time");
+                column.iSubItem = 0;
+                column.cx = MulDiv(100, static_cast<int>(dpi), 96);
+                if (ListView_InsertColumn(app->activity_list_, 0, &column) < 0)
+                    return -1;
+                column.pszText = const_cast<wchar_t*>(L"Activity");
+                column.iSubItem = 1;
+                column.cx = MulDiv(500, static_cast<int>(dpi), 96);
+                if (ListView_InsertColumn(app->activity_list_, 1, &column) < 0)
+                    return -1;
+                app->RefreshActivityWindow();
+                return 0;
+            }
+            if (message == WM_SIZE && app->activity_list_ && app->activity_close_) {
+                RECT client{};
+                GetClientRect(window, &client);
+                const auto dpi = GetDpiForWindow(window);
+                const int margin = MulDiv(12, static_cast<int>(dpi), 96);
+                const int button_width = MulDiv(90, static_cast<int>(dpi), 96);
+                const int button_height = MulDiv(28, static_cast<int>(dpi), 96);
+                const int width = client.right - client.left;
+                const int height = client.bottom - client.top;
+                MoveWindow(app->activity_list_, margin, margin,
+                    width - 2 * margin, height - 3 * margin - button_height, TRUE);
+                const int time_column = ListView_GetColumnWidth(app->activity_list_, 0);
+                const int activity_width = width - 2 * margin - time_column - MulDiv(24, static_cast<int>(dpi), 96);
+                ListView_SetColumnWidth(app->activity_list_, 1, activity_width > 0 ? activity_width : 0);
+                MoveWindow(app->activity_close_, width - margin - button_width,
+                    height - margin - button_height, button_width, button_height, TRUE);
+                return 0;
+            }
+            if (message == WM_GETMINMAXINFO) {
+                auto info = reinterpret_cast<MINMAXINFO*>(lparam);
+                const auto dpi = GetDpiForWindow(window);
+                info->ptMinTrackSize.x = MulDiv(480, static_cast<int>(dpi), 96);
+                info->ptMinTrackSize.y = MulDiv(280, static_cast<int>(dpi), 96);
+                return 0;
+            }
+            if (message == WM_DPICHANGED) {
+                const auto suggested = reinterpret_cast<const RECT*>(lparam);
+                SetWindowPos(window, nullptr, suggested->left, suggested->top,
+                    suggested->right - suggested->left, suggested->bottom - suggested->top,
+                    SWP_NOZORDER | SWP_NOACTIVATE);
+                return 0;
+            }
+            if (message == WM_COMMAND && LOWORD(wparam) == ActivityCloseId) {
+                DestroyWindow(window);
+                return 0;
+            }
+            if (message == WM_CLOSE) {
+                DestroyWindow(window);
+                return 0;
+            }
+            if (message == WM_DESTROY) {
+                app->activity_window_ = nullptr;
+                app->activity_list_ = nullptr;
+                app->activity_close_ = nullptr;
+                return 0;
+            }
+        }
+        return DefWindowProcW(window, message, wparam, lparam);
     }
 
     void CheckConnections() {
@@ -212,14 +381,9 @@ private:
         case MenuCheck:
             CheckConnections();
             break;
-        case MenuActivity: {
-            std::wstring text;
-            for (const auto& entry : events_)
-                text += entry + L"\r\n";
-            MessageBoxW(window_, text.empty() ? L"No switching activity yet." : text.c_str(),
-                L"wlanmute: recent activity", MB_OK | MB_ICONINFORMATION);
+        case MenuActivity:
+            ShowActivityWindow();
             break;
-        }
         case MenuAbout:
             MessageBoxW(window_, L"wlanmute " WLANMUTE_VERSION L"\nNative Win32 Ethernet/Wi-Fi tray utility.\n"
                 L"Prefers Internet-capable Ethernet on the same subnet.\n"
@@ -281,13 +445,16 @@ private:
     HINSTANCE instance_{};
     HICON icons_[IconCount]{};
     HWND window_{};
+    HWND activity_window_{};
+    HWND activity_list_{};
+    HWND activity_close_{};
     UINT taskbar_created_{};
     NOTIFYICONDATAW tray_{};
     bool enabled_{true};
     std::optional<wlanmute::Clock::time_point> exiting_;
     std::wstring status_{L"Starting..."};
     std::wstring last_error_;
-    std::deque<std::wstring> events_;
+    std::deque<ActivityEvent> events_;
 };
 
 }
