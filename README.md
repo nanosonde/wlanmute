@@ -32,8 +32,9 @@ Run it as your normal user. No installer, .NET installation, or routine
 administrator elevation is needed. Look in the system tray, including hidden
 icons. Right-click for **Automatic switching**, **Check now**, **Recent activity**,
 and **Exit (restore Wi-Fi)**. Recent activity opens a live table of the latest
-30 events. The tray menu also shows the friendly names of the active Ethernet
-and Wi-Fi interfaces (or the matched pair while Wi-Fi is muted). Turning
+30 events. The tray menu also shows the friendly names of active Ethernet and
+Wi-Fi interfaces and their Windows network profile names (or the matched pair
+while Wi-Fi is muted). Turning
 automatic switching off restores any Wi-Fi
 connection owned by the app. Exiting waits for restoration to be confirmed;
 if it fails, the app stays paused and reports the problem rather than silently
@@ -43,7 +44,34 @@ The C++ runtime is statically linked. There are no bundled runtime DLLs, startup
 extraction, or supporting files: **one EXE is the entire application**. It uses
 only Windows' built-in system DLLs. Releases are unsigned, so Windows SmartScreen
 may warn about an unfamiliar publisher. It does not add itself to Windows startup;
-if desired, place a shortcut in your user Startup folder (`shell:startup`).
+see [Start wlanmute automatically](#start-wlanmute-automatically) if you want it
+to run after you sign in.
+
+### Start wlanmute automatically
+
+wlanmute does not change Windows startup settings by itself. To start it when
+you sign in to your account:
+
+1. Download the EXE and move it to a permanent location, such as a `wlanmute`
+   folder inside your user profile. Do not leave it in Downloads if you may
+   later clean that folder.
+2. Press **Win+R**, type `shell:startup`, and press **Enter**. This opens your
+   personal Startup folder.
+3. In File Explorer, right-click `wlanmute-win-x64.exe` (or
+   `wlanmute-win-arm64.exe`), select **Show more options** if needed, then
+   **Create shortcut**. Move the shortcut into the Startup folder. Alternatively,
+   right-click the Startup folder, choose **New > Shortcut**, and browse to the
+   EXE.
+4. Sign out and back in, or restart Windows. wlanmute should appear in the
+   notification area. Check the hidden-icons area if it is not immediately
+   visible.
+
+The personal Startup folder runs the app only after **your** account signs in;
+it does not run before sign-in or for other users. To start it for every user,
+an administrator can place a shortcut in the all-users Startup folder opened
+with **Win+R** and `shell:common startup`. To stop automatic startup, remove
+the wlanmute shortcut from the applicable Startup folder. This does not uninstall
+or delete the EXE.
 
 ## Behavior and safeguards
 
