@@ -1,5 +1,11 @@
 # wlanmute
 
+[![Build](https://github.com/nanosonde/wlanmute/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/nanosonde/wlanmute/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/nanosonde/wlanmute)](https://github.com/nanosonde/wlanmute/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/nanosonde/wlanmute)](LICENSE)
+![Windows 11](https://img.shields.io/badge/platform-Windows%2011-0078D4?logo=windows&logoColor=white)
+![Architectures](https://img.shields.io/badge/arch-x64%20%7C%20ARM64-blue)
+
 A small, native C++/Win32 Windows 11 tray utility for USB-monitor/dock Ethernet users.
 It prefers **Internet-capable Ethernet** over **Wi-Fi on the same subnet**.
 When that Ethernet connection is unplugged or Windows reports that it has lost
@@ -26,7 +32,9 @@ Run it as your normal user. No installer, .NET installation, or routine
 administrator elevation is needed. Look in the system tray, including hidden
 icons. Right-click for **Automatic switching**, **Check now**, **Recent activity**,
 and **Exit (restore Wi-Fi)**. Recent activity opens a live table of the latest
-30 events. Turning automatic switching off restores any Wi-Fi
+30 events. The tray menu also shows the friendly names of the active Ethernet
+and Wi-Fi interfaces (or the matched pair while Wi-Fi is muted). Turning
+automatic switching off restores any Wi-Fi
 connection owned by the app. Exiting waits for restoration to be confirmed;
 if it fails, the app stays paused and reports the problem rather than silently
 leaving Wi-Fi disconnected.
