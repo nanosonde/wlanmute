@@ -30,6 +30,7 @@ struct EthernetLink {
     InterfaceId id{};
     bool has_internet{};
     std::vector<Subnet> subnets;
+    std::wstring name;
 };
 
 struct WifiLink {
@@ -37,6 +38,7 @@ struct WifiLink {
     WifiState state{WifiState::Unavailable};
     std::wstring profile;
     std::vector<Subnet> subnets;
+    std::wstring name;
 };
 
 struct Snapshot {
@@ -55,12 +57,15 @@ class NetworkPolicy {
 public:
     NetworkPolicy(WirelessActions& wireless, std::function<void(const std::wstring&)> report);
     std::wstring Update(const Snapshot& snapshot, bool enabled, Clock::time_point now);
+    std::vector<std::wstring> InterfaceDetails(const Snapshot& snapshot) const;
     std::size_t MutedCount() const { return muted_.size(); }
 
 private:
     struct MutedConnection {
         std::wstring profile;
         std::vector<Subnet> subnets;
+        std::wstring interface_name;
+        std::wstring ethernet_name;
         std::optional<Clock::time_point> reconnect_requested;
     };
     static bool HasMatchingEthernet(const Snapshot& snapshot, const std::vector<Subnet>& subnets);

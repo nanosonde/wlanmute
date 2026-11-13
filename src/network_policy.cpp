@@ -78,7 +78,17 @@ std::wstring NetworkPolicy::Update(const Snapshot& snapshot, bool enabled, Clock
         if (enabled && wifi.state == WifiState::Connected && !wifi.profile.empty() &&
             HasMatchingEthernet(snapshot, wifi.subnets)) {
             // Allocate tracking state before disconnecting; roll it back if the API rejects the request.
-            muted_.emplace(wifi.id, MutedConnection{wifi.profile, wifi.subnets, std::nullopt});
+            const auto matching_ethernet = std::find_if(snapshot.ethernet.begin(), snapshot.ethernet.end(),
+                [&](const auto& ethernet) {
+                    return ethernet.has_internet && std::any_of(ethernet.subnets.begin(), ethernet.subnets.end(),
+                        [&](const auto& subnet) {
+                            return std::find(wifi.subnets.begin(), wifi.subnets.end(), subnet) != wifi.subnets.end();
+                        });
+                });
+            const auto ethernet_name = matching_ethernet == snapshot.ethernet.end() || matching_ethernet->name.empty()
+                ? L"Ethernet" : matching_ethernet->name;
+            muted_.emplace(wifi.id, MutedConnection{
+                wifi.profile, wifi.subnets, wifi.name, ethernet_name, std::nullopt});
             try {
                 wireless_.Disconnect(wifi.id, wifi.profile);
             } catch (...) {
@@ -95,6 +105,55 @@ std::wstring NetworkPolicy::Update(const Snapshot& snapshot, bool enabled, Clock
         return !HasMatchingEthernet(snapshot, entry.second.subnets);
     });
     return restoring ? L"Restoring Wi-Fi" : L"Ethernet preferred / Wi-Fi managed";
+}
+
+std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapshot) const {
+    std::vector<std::wstring> details;
+    for (const auto& [id, saved] : muted_) {
+        (void)id;
+        for (const auto& ethernet : snapshot.ethernet) {
+            if (!ethernet.has_internet ||
+                !std::any_of(ethernet.subnets.begin(), ethernet.subnets.end(), [&](const auto& subnet) {
+                    return std::find(saved.subnets.begin(), saved.subnets.end(), subnet) != saved.subnets.end();
+                }))
+                continue;
+
+            const auto ethernet_name = ethernet.name.empty() ? L"Ethernet" : ethernet.name;
+            const auto wifi_name = saved.interface_name.empty() ? L"Wi-Fi" : saved.interface_name;
+            const auto detail = L"Ethernet: " + ethernet_name + L" | Wi-Fi: " + wifi_name;
+            if (std::find(details.begin(), details.end(), detail) == details.end())
+                details.push_back(detail);
+        }
+    }
+
+    if (!details.empty())
+        return details;
+
+    for (const auto& [id, saved] : muted_) {
+        (void)id;
+        const auto wifi_name = saved.interface_name.empty() ? L"Wi-Fi" : saved.interface_name;
+        const auto detail = L"Ethernet: " + saved.ethernet_name + L" | Wi-Fi: " + wifi_name;
+        if (std::find(details.begin(), details.end(), detail) == details.end())
+            details.push_back(detail);
+    }
+    if (!details.empty())
+        return details;
+
+    for (const auto& ethernet : snapshot.ethernet) {
+        if (!ethernet.has_internet)
+            continue;
+        const auto detail = L"Ethernet: " + (ethernet.name.empty() ? L"Ethernet" : ethernet.name);
+        if (std::find(details.begin(), details.end(), detail) == details.end())
+            details.push_back(detail);
+    }
+    for (const auto& wifi : snapshot.wifi) {
+        if (wifi.state != WifiState::Connected)
+            continue;
+        const auto detail = L"Wi-Fi: " + (wifi.name.empty() ? L"Wi-Fi" : wifi.name);
+        if (std::find(details.begin(), details.end(), detail) == details.end())
+            details.push_back(detail);
+    }
+    return details;
 }
 
 }

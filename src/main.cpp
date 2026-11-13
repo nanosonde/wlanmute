@@ -2,6 +2,7 @@
 #include "version.h"
 #include "windows_network.h"
 
+#include <algorithm>
 #include <commctrl.h>
 #include <objbase.h>
 #include <shellapi.h>
@@ -327,8 +328,11 @@ private:
     }
 
     void CheckConnections() {
+        current_snapshot_.reset();
         try {
-            status_ = policy_.Update(network_.Read(), enabled_, wlanmute::Clock::now());
+            auto snapshot = network_.Read();
+            status_ = policy_.Update(snapshot, enabled_, wlanmute::Clock::now());
+            current_snapshot_ = std::move(snapshot);
             last_error_.clear();
         } catch (const std::exception& error) {
             ShowError(wlanmute::ErrorMessage(error));
@@ -357,6 +361,25 @@ private:
         if (!menu)
             throw std::runtime_error("Cannot create the tray menu.");
         AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, status_.c_str());
+        if (current_snapshot_) {
+            constexpr std::size_t MaxInterfaceRows = 6;
+            const auto details = policy_.InterfaceDetails(*current_snapshot_);
+            const auto count = (std::min)(details.size(), MaxInterfaceRows);
+            for (std::size_t i = 0; i < count; ++i) {
+                auto label = details[i];
+                constexpr std::size_t MaxMenuLabel = 72;
+                if (label.size() > MaxMenuLabel) {
+                    label.resize(MaxMenuLabel - 3);
+                    label += L"...";
+                }
+                AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, label.c_str());
+            }
+            if (details.size() > count) {
+                const auto remaining = details.size() - count;
+                const auto more = L"and " + std::to_wstring(remaining) + L" more interfaces";
+                AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, more.c_str());
+            }
+        }
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         const auto automatic_flags = static_cast<UINT>(MF_STRING | (enabled_ ? MF_CHECKED : MF_UNCHECKED) |
             (exiting_ ? MF_GRAYED : MF_ENABLED));
@@ -454,6 +477,7 @@ private:
     std::optional<wlanmute::Clock::time_point> exiting_;
     std::wstring status_{L"Starting..."};
     std::wstring last_error_;
+    std::optional<wlanmute::Snapshot> current_snapshot_;
     std::deque<ActivityEvent> events_;
 };
 

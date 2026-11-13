@@ -150,7 +150,8 @@ Snapshot WindowsNetwork::Read(bool require_wifi) {
             auto subnets = ReadSubnets(*adapter);
             networks.emplace(id, subnets);
             if (adapter->IfType == IF_TYPE_ETHERNET_CSMACD)
-                snapshot.ethernet.push_back({id, internet.contains(id), std::move(subnets)});
+                snapshot.ethernet.push_back({id, internet.contains(id), std::move(subnets),
+                    adapter->FriendlyName ? adapter->FriendlyName : L"Ethernet"});
         }
     }
 
@@ -170,6 +171,7 @@ Snapshot WindowsNetwork::Read(bool require_wifi) {
         auto& info = interfaces->InterfaceInfo[i];
         WifiLink wifi;
         wifi.id = ToId(info.InterfaceGuid);
+        wifi.name = info.strInterfaceDescription;
         if (const auto found = networks.find(wifi.id); found != networks.end())
             wifi.subnets = found->second;
         switch (info.isState) {
