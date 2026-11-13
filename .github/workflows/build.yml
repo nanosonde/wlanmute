@@ -1,0 +1,131 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            rid: win-x64
+          - architecture: ARM64
+            rid: win-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure native build with static C++ runtime
+        run: cmake -S . -B build -A ${{ matrix.architecture }} -DBUILD_TESTING=${{ matrix.architecture == 'x64' && 'ON' || 'OFF' }}
+      - run: cmake --build build --config Release --parallel
+      - name: Test policy on Windows
+        if: matrix.rid == 'win-x64'
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package single portable EXE and check dependencies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory artifacts
+          Copy-Item build/Release/wlanmute.exe artifacts/wlanmute-${{ matrix.rid }}.exe
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $dumpbin) { throw 'dumpbin not found' }
+          $deps = & $dumpbin.FullName /dependents artifacts/wlanmute-${{ matrix.rid }}.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency inspection failed' }
+          $deps
+          if ($deps -match '(?i)(VCRUNTIME|MSVCP|libgcc|libstdc\+\+).*\.dll') {
+            throw 'EXE must not require a separately installed C++ runtime'
+          }
+          $files = @(Get-ChildItem artifacts -File)
+          if ($files.Count -ne 1 -or $files[0].Extension -ne '.exe') {
+            throw 'Package must contain exactly one EXE'
+          }
+      - name: Smoke-test Windows APIs without switching networks
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: |
+          # Windows Server runners may not include the WLAN AutoConfig service; the
+          # smoke test then validates NLM and adapter APIs and skips Wi-Fi enumeration.
+          $wlan = Get-Service WlanSvc -ErrorAction SilentlyContinue
+          if ($wlan) {
+            Set-Service WlanSvc -StartupType Manual
+            Start-Service WlanSvc -ErrorAction Continue
+          } else {
+            Write-Host 'WlanSvc not installed on this runner; Wi-Fi enumeration will be skipped.'
+          }
+          $process = Start-Process artifacts/wlanmute-win-x64.exe -ArgumentList '--smoke-test' -Wait -PassThru
+          if (Test-Path smoke-test-result.txt) { Get-Content smoke-test-result.txt -Encoding Unicode }
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path smoke-test-error.txt) { Get-Content smoke-test-error.txt -Encoding Unicode }
+            throw "Smoke test failed: $($process.ExitCode)"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wlanmute-${{ matrix.rid }}
+          path: artifacts/wlanmute-${{ matrix.rid }}.exe
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Check version and extract changelog section
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag $TAG is not a SemVer tag (vMAJOR.MINOR.PATCH)"; exit 1
+          fi
+          project=$(sed -nE 's/^project\(wlanmute VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          if [ "${version%%-*}" != "$project" ]; then
+            echo "::error::Tag $TAG does not match CMakeLists.txt VERSION $project"; exit 1
+          fi
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[[^]]+\]: / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md has no entry for $version"; exit 1
+          fi
+          cat release-notes.md
+      - name: Publish release with checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd artifacts
+          sha256sum wlanmute-*.exe > SHA256SUMS.txt
+          cp ../LICENSE LICENSE.txt
+          gh release create "$TAG" wlanmute-*.exe SHA256SUMS.txt LICENSE.txt \
+            --title "wlanmute $TAG" --notes-file ../release-notes.md \
+            --verify-tag $([[ "$TAG" == *-* ]] && echo --prerelease)

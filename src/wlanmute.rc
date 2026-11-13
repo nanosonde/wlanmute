@@ -1,0 +1,39 @@
+#include <winver.h>
+
+#include "resource.h"
+#include "version.h"
+
+IDI_APP_MUTED ICON "icons/muted.ico"
+IDI_MONITORING ICON "icons/monitoring.ico"
+IDI_PAUSED ICON "icons/paused.ico"
+
+// RT_MANIFEST (24), CREATEPROCESS_MANIFEST_RESOURCE_ID (1)
+1 24 "app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION WLANMUTE_VERSION_MAJOR, WLANMUTE_VERSION_MINOR, WLANMUTE_VERSION_PATCH, 0
+PRODUCTVERSION WLANMUTE_VERSION_MAJOR, WLANMUTE_VERSION_MINOR, WLANMUTE_VERSION_PATCH, 0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "nanosonde"
+      VALUE "FileDescription", "wlanmute - prefers Ethernet over same-subnet Wi-Fi"
+      VALUE "FileVersion", WLANMUTE_VERSION
+      VALUE "InternalName", "wlanmute"
+      VALUE "OriginalFilename", "wlanmute.exe"
+      VALUE "ProductName", "wlanmute"
+      VALUE "ProductVersion", WLANMUTE_VERSION
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END
