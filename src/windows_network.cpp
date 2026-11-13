@@ -82,6 +82,21 @@ std::wstring SsidToWideString(const DOT11_SSID& ssid) {
     return result;
 }
 
+std::wstring ReadConnectedSsid(HANDLE wlan, const GUID& interface_id) {
+    WLAN_AVAILABLE_NETWORK_LIST* raw_networks = nullptr;
+    Check(WlanGetAvailableNetworkList(wlan, &interface_id, 0, nullptr, &raw_networks),
+        "Read available Wi-Fi network names");
+    std::unique_ptr<WLAN_AVAILABLE_NETWORK_LIST, WlanDeleter> networks(raw_networks);
+    for (DWORD i = 0; i < networks->dwNumberOfItems; ++i) {
+        const auto& network = networks->Network[i];
+        if (network.dwFlags & WLAN_AVAILABLE_NETWORK_CONNECTED) {
+            if (const auto name = SsidToWideString(network.dot11Ssid); !name.empty())
+                return name;
+        }
+    }
+    return {};
+}
+
 InterfaceId ToId(const GUID& guid) {
     InterfaceId result{};
     static_assert(sizeof(result) == sizeof(guid));
@@ -254,6 +269,9 @@ Snapshot WindowsNetwork::Read(bool require_wifi) {
             const auto ssid = SsidToWideString(connection->wlanAssociationAttributes.dot11Ssid);
             if (!ssid.empty())
                 wifi.network_name = ssid;
+            else if (const auto available_ssid = ReadConnectedSsid(wlan_, info.InterfaceGuid);
+                     !available_ssid.empty())
+                wifi.network_name = available_ssid;
             else if (!connection_profile.empty())
                 wifi.network_name = connection_profile;
             break;

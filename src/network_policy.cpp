@@ -116,13 +116,23 @@ std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapsh
                                    const std::wstring& network_name) {
         const auto label = interface_name.empty() ? type : interface_name;
         const auto interface_detail = type + L": " + label;
-        if (std::find(details.begin(), details.end(), interface_detail) == details.end())
-            details.push_back(interface_detail);
+        if (std::find(details.begin(), details.end(), interface_detail) != details.end())
+            return;
+        details.push_back(interface_detail);
         if (!network_name.empty()) {
             const auto network_detail = L"  Network: " + network_name;
-            if (std::find(details.begin(), details.end(), network_detail) == details.end())
-                details.push_back(network_detail);
+            details.push_back(network_detail);
         }
+    };
+    const auto matching_ethernet_network = [&](const std::vector<Subnet>& subnets) -> std::wstring {
+        for (const auto& ethernet : snapshot.ethernet) {
+            if (ethernet.has_internet && !ethernet.network_name.empty() &&
+                std::any_of(ethernet.subnets.begin(), ethernet.subnets.end(), [&](const auto& ethernet_subnet) {
+                    return std::find(subnets.begin(), subnets.end(), ethernet_subnet) != subnets.end();
+                }))
+                return ethernet.network_name;
+        }
+        return {};
     };
 
     for (const auto& [id, saved] : muted_) {
@@ -138,7 +148,8 @@ std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapsh
                 continue;
 
             add_interface(L"Ethernet", ethernet.name, ethernet.network_name);
-            add_interface(L"Wi-Fi", saved.interface_name, wifi_network_name);
+            add_interface(L"Wi-Fi", saved.interface_name,
+                wifi_network_name.empty() ? ethernet.network_name : wifi_network_name);
         }
     }
 
@@ -164,7 +175,9 @@ std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapsh
     for (const auto& wifi : snapshot.wifi) {
         if (wifi.state != WifiState::Connected)
             continue;
-        add_interface(L"Wi-Fi", wifi.name, wifi.network_name);
+        const auto network_name = wifi.network_name.empty()
+            ? matching_ethernet_network(wifi.subnets) : wifi.network_name;
+        add_interface(L"Wi-Fi", wifi.name, network_name);
     }
     return details;
 }

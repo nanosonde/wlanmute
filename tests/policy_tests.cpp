@@ -170,6 +170,11 @@ void InterfaceNameTests() {
         active[1] == L"  Network: Office LAN" && active[2] == L"Wi-Fi: Intel Wi-Fi" &&
         active[3] == L"  Network: SkyNet",
         "Active interface and network names must be shown while monitoring");
+
+    monitoring.wifi[0].network_name.clear();
+    const auto matched_name = monitoring_policy.InterfaceDetails(monitoring);
+    Require(matched_name.size() == 4 && matched_name[3] == L"  Network: Office LAN",
+        "Wi-Fi must fall back to the matching Ethernet network name");
 }
 
 void FailureTests() {
