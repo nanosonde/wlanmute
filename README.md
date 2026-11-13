@@ -33,8 +33,9 @@ administrator elevation is needed. Look in the system tray, including hidden
 icons. Right-click for **Automatic switching**, **Check now**, **Recent activity**,
 and **Exit (restore Wi-Fi)**. Recent activity opens a live table of the latest
 30 events. The tray menu also shows the friendly names of active Ethernet and
-Wi-Fi interfaces and their Windows network profile names (or the matched pair
-while Wi-Fi is muted). Turning
+Wi-Fi interfaces and their network names (the connected Wi-Fi SSID, falling
+back to its saved profile name if needed; Ethernet uses the Windows network
+profile name). The matched pair remains visible while Wi-Fi is muted. Turning
 automatic switching off restores any Wi-Fi
 connection owned by the app. Exiting waits for restoration to be confirmed;
 if it fails, the app stays paused and reports the problem rather than silently

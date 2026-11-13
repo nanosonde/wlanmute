@@ -149,11 +149,14 @@ void InterfaceNameTests() {
     Snapshot monitoring{
         {{LanId, true, {Home}, L"Dock Ethernet", L"Office LAN"}},
         {Wifi(WifiState::Connected)}};
+    monitoring.wifi[0].name = L"Intel Wi-Fi";
+    monitoring.wifi[0].network_name = L"SkyNet";
     FakeWireless monitoring_actions;
     NetworkPolicy monitoring_policy(monitoring_actions, [](const auto&) {});
     const auto active = monitoring_policy.InterfaceDetails(monitoring);
-    Require(active.size() == 3 && active[0] == L"Ethernet: Dock Ethernet" &&
-        active[1] == L"  Network: Office LAN" && active[2] == L"Wi-Fi: Wi-Fi",
+    Require(active.size() == 4 && active[0] == L"Ethernet: Dock Ethernet" &&
+        active[1] == L"  Network: Office LAN" && active[2] == L"Wi-Fi: Intel Wi-Fi" &&
+        active[3] == L"  Network: SkyNet",
         "Active interface and network names must be shown while monitoring");
 }
 
