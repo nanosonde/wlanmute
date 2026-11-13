@@ -59,13 +59,22 @@ std::wstring SsidToWideString(const DOT11_SSID& ssid) {
     const auto byte_count = static_cast<int>(ssid.uSSIDLength);
     const int character_count = MultiByteToWideChar(
         CP_UTF8, MB_ERR_INVALID_CHARS, bytes, byte_count, nullptr, 0);
-    if (character_count <= 0)
-        return {};
-
-    std::wstring result(static_cast<std::size_t>(character_count), L'\0');
-    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes, byte_count,
-            result.data(), character_count) != character_count)
-        return {};
+    std::wstring result;
+    if (character_count > 0) {
+        result.resize(static_cast<std::size_t>(character_count));
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes, byte_count,
+                result.data(), character_count) != character_count)
+            result.clear();
+    }
+    if (result.empty()) {
+        const int fallback_count = MultiByteToWideChar(CP_ACP, 0, bytes, byte_count, nullptr, 0);
+        if (fallback_count <= 0)
+            return {};
+        result.resize(static_cast<std::size_t>(fallback_count));
+        if (MultiByteToWideChar(CP_ACP, 0, bytes, byte_count,
+                result.data(), fallback_count) != fallback_count)
+            return {};
+    }
     for (auto& character : result) {
         if (character < L' ' || character == 0x7f)
             character = L'?';
@@ -239,13 +248,14 @@ Snapshot WindowsNetwork::Read(bool require_wifi) {
                 throw std::runtime_error("WLAN returned truncated connection attributes.");
             const auto connection = static_cast<const WLAN_CONNECTION_ATTRIBUTES*>(attributes.get());
             wifi.state = WifiState::Connected;
+            const std::wstring connection_profile = connection->strProfileName;
             if (connection->wlanConnectionMode == wlan_connection_mode_profile)
-                wifi.profile = connection->strProfileName;
+                wifi.profile = connection_profile;
             const auto ssid = SsidToWideString(connection->wlanAssociationAttributes.dot11Ssid);
             if (!ssid.empty())
                 wifi.network_name = ssid;
-            else if (wifi.network_name.empty())
-                wifi.network_name = wifi.profile;
+            else if (!connection_profile.empty())
+                wifi.network_name = connection_profile;
             break;
         }
         case wlan_interface_state_disconnected:

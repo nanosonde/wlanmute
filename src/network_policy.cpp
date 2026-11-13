@@ -126,7 +126,10 @@ std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapsh
     };
 
     for (const auto& [id, saved] : muted_) {
-        (void)id;
+        const auto connected_wifi = std::find_if(snapshot.wifi.begin(), snapshot.wifi.end(),
+            [&](const auto& wifi) { return wifi.id == id && wifi.state == WifiState::Connected; });
+        const auto& wifi_network_name = connected_wifi != snapshot.wifi.end() &&
+            !connected_wifi->network_name.empty() ? connected_wifi->network_name : saved.network_name;
         for (const auto& ethernet : snapshot.ethernet) {
             if (!ethernet.has_internet ||
                 !std::any_of(ethernet.subnets.begin(), ethernet.subnets.end(), [&](const auto& subnet) {
@@ -135,7 +138,7 @@ std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapsh
                 continue;
 
             add_interface(L"Ethernet", ethernet.name, ethernet.network_name);
-            add_interface(L"Wi-Fi", saved.interface_name, saved.network_name);
+            add_interface(L"Wi-Fi", saved.interface_name, wifi_network_name);
         }
     }
 
@@ -143,9 +146,12 @@ std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapsh
         return details;
 
     for (const auto& [id, saved] : muted_) {
-        (void)id;
+        const auto connected_wifi = std::find_if(snapshot.wifi.begin(), snapshot.wifi.end(),
+            [&](const auto& wifi) { return wifi.id == id && wifi.state == WifiState::Connected; });
+        const auto& wifi_network_name = connected_wifi != snapshot.wifi.end() &&
+            !connected_wifi->network_name.empty() ? connected_wifi->network_name : saved.network_name;
         add_interface(L"Ethernet", saved.ethernet_name, saved.ethernet_network_name);
-        add_interface(L"Wi-Fi", saved.interface_name, saved.network_name);
+        add_interface(L"Wi-Fi", saved.interface_name, wifi_network_name);
     }
     if (!details.empty())
         return details;

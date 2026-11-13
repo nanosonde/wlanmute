@@ -146,6 +146,18 @@ void InterfaceNameTests() {
     Require(restored_details == details,
         "Interface and network names must remain visible while Wi-Fi is disconnected");
 
+    auto connected_without_name = State(true, WifiState::Connected);
+    connected_without_name.ethernet[0].name = L"USB Ethernet Adapter";
+    connected_without_name.ethernet[0].network_name = L"Home Network";
+    connected_without_name.wifi[0].name = L"Intel Wi-Fi 6E";
+    connected_without_name.wifi[0].network_name.clear();
+    policy.Update(connected_without_name, true, Now + std::chrono::seconds(3));
+    auto connected_with_name = connected_without_name;
+    connected_with_name.wifi[0].network_name = L"Skynet";
+    const auto live_details = policy.InterfaceDetails(connected_with_name);
+    Require(live_details.size() == 4 && live_details[3] == L"  Network: Skynet",
+        "Muted Wi-Fi must prefer its live network name over an empty saved name");
+
     Snapshot monitoring{
         {{LanId, true, {Home}, L"Dock Ethernet", L"Office LAN"}},
         {Wifi(WifiState::Connected)}};
