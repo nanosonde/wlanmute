@@ -31,6 +31,7 @@ struct EthernetLink {
     bool has_internet{};
     std::vector<Subnet> subnets;
     std::wstring name;
+    std::wstring network_name;
 };
 
 struct WifiLink {
@@ -39,6 +40,7 @@ struct WifiLink {
     std::wstring profile;
     std::vector<Subnet> subnets;
     std::wstring name;
+    std::wstring network_name;
 };
 
 struct Snapshot {
@@ -65,7 +67,9 @@ private:
         std::wstring profile;
         std::vector<Subnet> subnets;
         std::wstring interface_name;
+        std::wstring network_name;
         std::wstring ethernet_name;
+        std::wstring ethernet_network_name;
         std::optional<Clock::time_point> reconnect_requested;
     };
     static bool HasMatchingEthernet(const Snapshot& snapshot, const std::vector<Subnet>& subnets);

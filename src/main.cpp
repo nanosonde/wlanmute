@@ -362,9 +362,9 @@ private:
             throw std::runtime_error("Cannot create the tray menu.");
         AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, status_.c_str());
         if (current_snapshot_) {
-            constexpr std::size_t MaxInterfaceRows = 6;
+            constexpr std::size_t MaxNetworkRows = 6;
             const auto details = policy_.InterfaceDetails(*current_snapshot_);
-            const auto count = (std::min)(details.size(), MaxInterfaceRows);
+            const auto count = (std::min)(details.size(), MaxNetworkRows);
             for (std::size_t i = 0; i < count; ++i) {
                 auto label = details[i];
                 constexpr std::size_t MaxMenuLabel = 72;
@@ -376,8 +376,8 @@ private:
             }
             if (details.size() > count) {
                 const auto remaining = details.size() - count;
-                const auto more = L"and " + std::to_wstring(remaining) + L" more interfaces";
-                AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, more.c_str());
+                const auto remaining_label = L"and " + std::to_wstring(remaining) + L" more network details";
+                AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, remaining_label.c_str());
             }
         }
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

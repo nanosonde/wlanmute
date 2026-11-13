@@ -23,11 +23,11 @@ const Subnet Home = V4(192, 168, 1, 50);
 
 WifiLink Wifi(WifiState state) {
     return {WifiId, state, state == WifiState::Connected ? L"Home" : L"",
-        state == WifiState::Connected ? std::vector<Subnet>{Home} : std::vector<Subnet>{}, L""};
+        state == WifiState::Connected ? std::vector<Subnet>{Home} : std::vector<Subnet>{}, L"", L""};
 }
 
 Snapshot State(bool internet, WifiState state) {
-    return {{{LanId, internet, {Home}, L""}}, {Wifi(state)}};
+    return {{{LanId, internet, {Home}, L"", L""}}, {Wifi(state)}};
 }
 
 class FakeWireless final : public WirelessActions {
@@ -88,11 +88,11 @@ void SafeguardTests() {
     FakeWireless actions;
     NetworkPolicy policy(actions, [](const auto&) {});
     policy.Update(State(false, WifiState::Connected), true, Now);
-    policy.Update({{{LanId, true, {V4(10, 0, 0, 1)}, L""}}, {Wifi(WifiState::Connected)}}, true, Now);
+    policy.Update({{{LanId, true, {V4(10, 0, 0, 1)}, L"", L""}}, {Wifi(WifiState::Connected)}}, true, Now);
     policy.Update(State(true, WifiState::Disconnected), true, Now);
     auto temporary = Wifi(WifiState::Connected);
     temporary.profile.clear();
-    policy.Update({{{LanId, true, {Home}, L""}}, {temporary}}, true, Now);
+    policy.Update({{{LanId, true, {Home}, L"", L""}}, {temporary}}, true, Now);
     Require(actions.calls.empty(), "Unrelated, disconnected, temporary or no-Internet Wi-Fi must be untouched");
 
     policy.Update(State(true, WifiState::Connected), true, Now);
@@ -128,27 +128,33 @@ void InterfaceNameTests() {
     NetworkPolicy policy(actions, [](const auto&) {});
     auto connected = State(true, WifiState::Connected);
     connected.ethernet[0].name = L"USB Ethernet Adapter";
+    connected.ethernet[0].network_name = L"Home Network";
     connected.wifi[0].name = L"Intel Wi-Fi 6E";
+    connected.wifi[0].network_name = L"Home Wi-Fi";
     policy.Update(connected, true, Now);
 
     const auto details = policy.InterfaceDetails(connected);
-    Require(details.size() == 1 &&
-        details[0] == L"Ethernet: USB Ethernet Adapter | Wi-Fi: Intel Wi-Fi 6E",
-        "Muted interface pair must be shown by friendly name");
+    Require(details.size() == 4 &&
+        details[0] == L"Ethernet: USB Ethernet Adapter" &&
+        details[1] == L"  Network: Home Network" &&
+        details[2] == L"Wi-Fi: Intel Wi-Fi 6E" &&
+        details[3] == L"  Network: Home Wi-Fi",
+        "Muted interface and network names must be shown");
 
     Snapshot unplugged{{}, {Wifi(WifiState::Disconnected)}};
     const auto restored_details = policy.InterfaceDetails(unplugged);
-    Require(restored_details.size() == 1 &&
-        restored_details[0] == L"Ethernet: USB Ethernet Adapter | Wi-Fi: Intel Wi-Fi 6E",
-        "Interface names must remain visible while Wi-Fi is disconnected");
+    Require(restored_details == details,
+        "Interface and network names must remain visible while Wi-Fi is disconnected");
 
-    Snapshot monitoring{{{LanId, true, {Home}, L"Dock Ethernet"}}, {Wifi(WifiState::Connected)}};
+    Snapshot monitoring{
+        {{LanId, true, {Home}, L"Dock Ethernet", L"Office LAN"}},
+        {Wifi(WifiState::Connected)}};
     FakeWireless monitoring_actions;
     NetworkPolicy monitoring_policy(monitoring_actions, [](const auto&) {});
     const auto active = monitoring_policy.InterfaceDetails(monitoring);
-    Require(active.size() == 2 && active[0] == L"Ethernet: Dock Ethernet" &&
-        active[1] == L"Wi-Fi: Wi-Fi",
-        "Active interface names must be shown while monitoring");
+    Require(active.size() == 3 && active[0] == L"Ethernet: Dock Ethernet" &&
+        active[1] == L"  Network: Office LAN" && active[2] == L"Wi-Fi: Wi-Fi",
+        "Active interface and network names must be shown while monitoring");
 }
 
 void FailureTests() {
@@ -174,7 +180,7 @@ void MultipleInterfaceTests() {
     auto other_wifi = Wifi(WifiState::Connected);
     other_wifi.id = InterfaceId{3};
     other_wifi.subnets = {V4(10, 0, 0, 1)};
-    policy.Update({{{LanId, true, {Home}, L""}}, {Wifi(WifiState::Connected), other_wifi}}, true, Now);
+    policy.Update({{{LanId, true, {Home}, L"", L""}}, {Wifi(WifiState::Connected), other_wifi}}, true, Now);
     Require(actions.calls.size() == 1 && policy.MutedCount() == 1, "Only matching Wi-Fi interface must be muted");
     policy.Update({{}, {}}, true, Now + std::chrono::seconds(3));
     Require(policy.MutedCount() == 1, "Missing Wi-Fi hardware must not discard saved restoration");

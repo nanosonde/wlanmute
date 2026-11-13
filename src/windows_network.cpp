@@ -6,7 +6,6 @@
 
 #include <cstring>
 #include <memory>
-#include <set>
 #include <stdexcept>
 #include <string>
 
@@ -43,6 +42,15 @@ struct ComDeleter {
     void operator()(IUnknown* object) const { if (object) object->Release(); }
 };
 
+struct BstrDeleter {
+    void operator()(wchar_t* value) const { SysFreeString(value); }
+};
+
+struct AdapterDetails {
+    bool has_internet{};
+    std::wstring network_name;
+};
+
 InterfaceId ToId(const GUID& guid) {
     InterfaceId result{};
     static_assert(sizeof(result) == sizeof(guid));
@@ -56,7 +64,7 @@ GUID ToGuid(const InterfaceId& id) {
     return result;
 }
 
-std::set<InterfaceId> InternetAdapters() {
+std::map<InterfaceId, AdapterDetails> ReadNetworkDetails() {
     INetworkListManager* raw_manager = nullptr;
     CheckHr(CoCreateInstance(NetworkListManagerClsid, nullptr, CLSCTX_ALL,
         NetworkListManagerIid, reinterpret_cast<void**>(&raw_manager)), "Open Network List Manager");
@@ -64,7 +72,7 @@ std::set<InterfaceId> InternetAdapters() {
     IEnumNetworkConnections* raw_connections = nullptr;
     CheckHr(manager->GetNetworkConnections(&raw_connections), "Enumerate network connections");
     std::unique_ptr<IEnumNetworkConnections, ComDeleter> connections(raw_connections);
-    std::set<InterfaceId> result;
+    std::map<InterfaceId, AdapterDetails> result;
     while (true) {
         INetworkConnection* raw_connection = nullptr;
         ULONG fetched = 0;
@@ -77,8 +85,18 @@ std::set<InterfaceId> InternetAdapters() {
         GUID id{};
         CheckHr(connection->GetConnectivity(&connectivity), "Read adapter Internet status");
         CheckHr(connection->GetAdapterId(&id), "Read adapter ID");
-        if ((connectivity & (NLM_CONNECTIVITY_IPV4_INTERNET | NLM_CONNECTIVITY_IPV6_INTERNET)) != 0)
-            result.insert(ToId(id));
+        INetwork* raw_network = nullptr;
+        CheckHr(connection->GetNetwork(&raw_network), "Read network profile");
+        std::unique_ptr<INetwork, ComDeleter> network(raw_network);
+        BSTR raw_name = nullptr;
+        CheckHr(network->GetName(&raw_name), "Read network name");
+        std::unique_ptr<wchar_t, BstrDeleter> name(raw_name);
+
+        auto& details = result[ToId(id)];
+        details.has_internet |= (connectivity &
+            (NLM_CONNECTIVITY_IPV4_INTERNET | NLM_CONNECTIVITY_IPV6_INTERNET)) != 0;
+        if (details.network_name.empty() && name)
+            details.network_name = name.get();
     }
     return result;
 }
@@ -123,7 +141,7 @@ void WindowsNetwork::Open() {
 }
 
 Snapshot WindowsNetwork::Read(bool require_wifi) {
-    const auto internet = InternetAdapters();
+    const auto network_details = ReadNetworkDetails();
     ULONG size = 16384;
     std::vector<std::uint8_t> buffer(size);
     DWORD status = ERROR_BUFFER_OVERFLOW;
@@ -149,9 +167,15 @@ Snapshot WindowsNetwork::Read(bool require_wifi) {
             const auto id = ToId(guid);
             auto subnets = ReadSubnets(*adapter);
             networks.emplace(id, subnets);
-            if (adapter->IfType == IF_TYPE_ETHERNET_CSMACD)
-                snapshot.ethernet.push_back({id, internet.contains(id), std::move(subnets),
-                    adapter->FriendlyName ? adapter->FriendlyName : L"Ethernet"});
+            if (adapter->IfType == IF_TYPE_ETHERNET_CSMACD) {
+                const auto profile = network_details.find(id);
+                snapshot.ethernet.push_back({
+                    id,
+                    profile != network_details.end() && profile->second.has_internet,
+                    std::move(subnets),
+                    adapter->FriendlyName ? adapter->FriendlyName : L"Ethernet",
+                    profile != network_details.end() ? profile->second.network_name : L""});
+            }
         }
     }
 
@@ -172,6 +196,8 @@ Snapshot WindowsNetwork::Read(bool require_wifi) {
         WifiLink wifi;
         wifi.id = ToId(info.InterfaceGuid);
         wifi.name = info.strInterfaceDescription;
+        if (const auto profile = network_details.find(wifi.id); profile != network_details.end())
+            wifi.network_name = profile->second.network_name;
         if (const auto found = networks.find(wifi.id); found != networks.end())
             wifi.subnets = found->second;
         switch (info.isState) {

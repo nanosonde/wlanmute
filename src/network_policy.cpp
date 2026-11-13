@@ -87,8 +87,11 @@ std::wstring NetworkPolicy::Update(const Snapshot& snapshot, bool enabled, Clock
                 });
             const auto ethernet_name = matching_ethernet == snapshot.ethernet.end() || matching_ethernet->name.empty()
                 ? L"Ethernet" : matching_ethernet->name;
+            const auto ethernet_network_name = matching_ethernet == snapshot.ethernet.end()
+                ? L"" : matching_ethernet->network_name;
             muted_.emplace(wifi.id, MutedConnection{
-                wifi.profile, wifi.subnets, wifi.name, ethernet_name, std::nullopt});
+                wifi.profile, wifi.subnets, wifi.name, wifi.network_name,
+                ethernet_name, ethernet_network_name, std::nullopt});
             try {
                 wireless_.Disconnect(wifi.id, wifi.profile);
             } catch (...) {
@@ -109,6 +112,19 @@ std::wstring NetworkPolicy::Update(const Snapshot& snapshot, bool enabled, Clock
 
 std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapshot) const {
     std::vector<std::wstring> details;
+    const auto add_interface = [&](const std::wstring& type, const std::wstring& interface_name,
+                                   const std::wstring& network_name) {
+        const auto label = interface_name.empty() ? type : interface_name;
+        const auto interface_detail = type + L": " + label;
+        if (std::find(details.begin(), details.end(), interface_detail) == details.end())
+            details.push_back(interface_detail);
+        if (!network_name.empty()) {
+            const auto network_detail = L"  Network: " + network_name;
+            if (std::find(details.begin(), details.end(), network_detail) == details.end())
+                details.push_back(network_detail);
+        }
+    };
+
     for (const auto& [id, saved] : muted_) {
         (void)id;
         for (const auto& ethernet : snapshot.ethernet) {
@@ -118,11 +134,8 @@ std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapsh
                 }))
                 continue;
 
-            const auto ethernet_name = ethernet.name.empty() ? L"Ethernet" : ethernet.name;
-            const auto wifi_name = saved.interface_name.empty() ? L"Wi-Fi" : saved.interface_name;
-            const auto detail = L"Ethernet: " + ethernet_name + L" | Wi-Fi: " + wifi_name;
-            if (std::find(details.begin(), details.end(), detail) == details.end())
-                details.push_back(detail);
+            add_interface(L"Ethernet", ethernet.name, ethernet.network_name);
+            add_interface(L"Wi-Fi", saved.interface_name, saved.network_name);
         }
     }
 
@@ -131,10 +144,8 @@ std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapsh
 
     for (const auto& [id, saved] : muted_) {
         (void)id;
-        const auto wifi_name = saved.interface_name.empty() ? L"Wi-Fi" : saved.interface_name;
-        const auto detail = L"Ethernet: " + saved.ethernet_name + L" | Wi-Fi: " + wifi_name;
-        if (std::find(details.begin(), details.end(), detail) == details.end())
-            details.push_back(detail);
+        add_interface(L"Ethernet", saved.ethernet_name, saved.ethernet_network_name);
+        add_interface(L"Wi-Fi", saved.interface_name, saved.network_name);
     }
     if (!details.empty())
         return details;
@@ -142,16 +153,12 @@ std::vector<std::wstring> NetworkPolicy::InterfaceDetails(const Snapshot& snapsh
     for (const auto& ethernet : snapshot.ethernet) {
         if (!ethernet.has_internet)
             continue;
-        const auto detail = L"Ethernet: " + (ethernet.name.empty() ? L"Ethernet" : ethernet.name);
-        if (std::find(details.begin(), details.end(), detail) == details.end())
-            details.push_back(detail);
+        add_interface(L"Ethernet", ethernet.name, ethernet.network_name);
     }
     for (const auto& wifi : snapshot.wifi) {
         if (wifi.state != WifiState::Connected)
             continue;
-        const auto detail = L"Wi-Fi: " + (wifi.name.empty() ? L"Wi-Fi" : wifi.name);
-        if (std::find(details.begin(), details.end(), detail) == details.end())
-            details.push_back(detail);
+        add_interface(L"Wi-Fi", wifi.name, wifi.network_name);
     }
     return details;
 }
